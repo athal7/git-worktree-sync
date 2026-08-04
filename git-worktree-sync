@@ -18,6 +18,16 @@
 
 set -eu
 
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  cat <<'EOF'
+Usage: git-worktree-sync [--help]
+
+Fast-forwards the default branch in all git repos under $CODE_DIR
+(default: $HOME/code) that have active worktrees.
+EOF
+  exit 1
+fi
+
 CODE_DIR="${HOME}/code"
 LOG_TAG="git-worktree-sync"
 
