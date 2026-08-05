@@ -49,8 +49,14 @@ for repo in "$CODE_DIR"/*/; do
     continue
   }
 
-  # Fetch default branch from origin
-  if ! git -C "$repo" fetch --quiet origin "$default_branch" 2>/dev/null; then
+  # Determine sync source: if an upstream remote exists, origin is a fork —
+  # sync from upstream (the primary repo). Otherwise sync from origin.
+  if git -C "$repo" remote | grep -qx upstream 2>/dev/null; then
+    sync_remote="upstream"
+  else
+    sync_remote="origin"
+  fi
+  if ! git -C "$repo" fetch --quiet "$sync_remote" "$default_branch" 2>/dev/null; then
     log "$name: fetch failed"
     continue
   fi
@@ -59,7 +65,7 @@ for repo in "$CODE_DIR"/*/; do
     log "$name: no local $default_branch ref"
     continue
   }
-  remote_ref=$(git -C "$repo" rev-parse "refs/remotes/origin/$default_branch" 2>/dev/null) || {
+  remote_ref=$(git -C "$repo" rev-parse "refs/remotes/$sync_remote/$default_branch" 2>/dev/null) || {
     log "$name: no remote $default_branch ref"
     continue
   }
@@ -68,7 +74,7 @@ for repo in "$CODE_DIR"/*/; do
   [ "$local_ref" != "$remote_ref" ] || continue
 
   # Only fast-forward (remote must be a descendant of local). A diverged main
-  # means there are local commits not in origin -- leave it alone, that's a
+  # means there are local commits not in the sync source -- leave it alone, that's a
   # human problem.
   if ! git -C "$repo" merge-base --is-ancestor "$local_ref" "$remote_ref" 2>/dev/null; then
     log "$name: $default_branch diverged, skipping"
