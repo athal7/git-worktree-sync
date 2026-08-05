@@ -4,7 +4,7 @@ Automatically fast-forwards the default branch in all your git worktree repos wh
 
 ## What it does
 
-Scans `~/code/*/` (or `$CODE_DIR`) for repos with active worktrees, fetches the default branch from origin, and fast-forwards only if the local branch is a strict ancestor of the remote. Diverged branches (local commits not in origin) are always skipped. Dirty worktrees are auto-stashed with a tagged message before the reset.
+Scans `~/code/*/` (or `$CODE_DIR`) for repos with active worktrees, fetches the default branch from the primary remote (an `upstream` remote if present, otherwise `origin`), and fast-forwards only if the local branch is a strict ancestor of the remote. Diverged branches (local commits not in the sync source) are always skipped. Dirty worktrees are auto-stashed with a tagged message before the reset.
 
 ## Requirements
 
