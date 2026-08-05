@@ -2,7 +2,7 @@
 # git-worktree-sync - Fast-forward default branch in repos with active worktrees
 #
 # Iterates over repos in ~/code/ that have git worktrees and:
-# 1. Fetches the default branch from origin
+# 1. Fetches the default branch from the primary remote (upstream if present, otherwise origin)
 # 2. Fast-forwards the local default branch via `reset --hard` so the main
 #    checkout's HEAD, index, and working tree all stay in sync.
 #
@@ -11,7 +11,7 @@
 # fast-forward is possible, those edits are stashed (tagged
 # "git-worktree-sync auto-stash") before the reset. Recover with `git stash list`
 # / `git stash apply` if needed; prune the auto-stash entries when stale.
-# A diverged main (local commits not in origin) is left alone.
+# A diverged main (local commits not in the sync source) is left alone.
 #
 # Designed to run on a schedule via LaunchAgent. Pairs well with
 # `git maintenance` prefetch for near-instant fetches.
@@ -42,15 +42,22 @@ for repo in "$CODE_DIR"/*/; do
 
   name=$(basename "$repo")
 
-  # Detect default branch: worktrunk config > origin/HEAD > skip
+  # Determine sync source: if an upstream remote exists, origin is a fork —
+  # sync from upstream (the primary repo). Otherwise sync from origin.
+  if git -C "$repo" remote | grep -qx upstream 2>/dev/null; then
+    sync_remote="upstream"
+  else
+    sync_remote="origin"
+  fi
+
+  # Detect default branch: worktrunk config > sync_remote/HEAD > skip
   default_branch=$(git -C "$repo" config worktrunk.default-branch 2>/dev/null) || \
-  default_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || {
+  default_branch=$(git -C "$repo" symbolic-ref "refs/remotes/$sync_remote/HEAD" 2>/dev/null | sed "s|refs/remotes/$sync_remote/||") || {
     log "$name: skipped (no default branch detected)"
     continue
   }
 
-  # Fetch default branch from origin
-  if ! git -C "$repo" fetch --quiet origin "$default_branch" 2>/dev/null; then
+  if ! git -C "$repo" fetch --quiet "$sync_remote" "$default_branch" 2>/dev/null; then
     log "$name: fetch failed"
     continue
   fi
@@ -59,7 +66,7 @@ for repo in "$CODE_DIR"/*/; do
     log "$name: no local $default_branch ref"
     continue
   }
-  remote_ref=$(git -C "$repo" rev-parse "refs/remotes/origin/$default_branch" 2>/dev/null) || {
+  remote_ref=$(git -C "$repo" rev-parse "refs/remotes/$sync_remote/$default_branch" 2>/dev/null) || {
     log "$name: no remote $default_branch ref"
     continue
   }
@@ -68,7 +75,7 @@ for repo in "$CODE_DIR"/*/; do
   [ "$local_ref" != "$remote_ref" ] || continue
 
   # Only fast-forward (remote must be a descendant of local). A diverged main
-  # means there are local commits not in origin -- leave it alone, that's a
+  # means there are local commits not in the sync source -- leave it alone, that's a
   # human problem.
   if ! git -C "$repo" merge-base --is-ancestor "$local_ref" "$remote_ref" 2>/dev/null; then
     log "$name: $default_branch diverged, skipping"
