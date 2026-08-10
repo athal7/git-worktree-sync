@@ -3,7 +3,8 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "git-worktree-sync"
+      "package-name": "git-worktree-sync",
+      "include-component-in-tag": false
     }
   }
 }
