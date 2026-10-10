@@ -1,10 +1,10 @@
 # git-worktree-sync
 
-Automatically fast-forwards the default branch in all your git worktree repos when the remote has new commits.
+Automatically fast-forwards default branches in repositories with active linked worktrees.
 
 ## What it does
 
-Scans `~/code/*/` (or `$CODE_DIR`) for repos with active worktrees, fetches the default branch from the primary remote (an `upstream` remote if present, otherwise `origin`), and fast-forwards only if the local branch is a strict ancestor of the remote. Diverged branches (local commits not in the sync source) are always skipped. Dirty worktrees are auto-stashed with a tagged message before the reset.
+Scans `~/code/*/` (or `$CODE_DIR`) for repositories with active linked worktrees, fetches the default branch from the primary remote (`upstream` if present, otherwise `origin`), and fast-forwards only if the local branch is a strict ancestor of the remote. Repositories whose root checkout is on a non-default or detached branch are skipped, so a sync cannot move a feature-branch pointer. Diverged branches are skipped. Dirty default-branch checkouts are auto-stashed with a tagged message before reset.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ chmod +x ~/.local/bin/git-worktree-sync
 git-worktree-sync
 ```
 
-Run manually or schedule via a LaunchAgent to keep all default branches current automatically.
+Run manually or schedule via a LaunchAgent to keep eligible default branches current.
 
 ## License
 
