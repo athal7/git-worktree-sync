@@ -37,29 +37,38 @@ advance_remote() {
   git -C "$updater" push -q origin main
 }
 
-# Help exits successfully without running the sync loop.
 "$script" --help > "$tmp/help"
-grep -q 'active worktrees' "$tmp/help"
+grep -q 'Hard-resets the checked-out root' "$tmp/help"
 
-# A root checked out on a feature branch is never reset to the default branch.
+# Even a diverged feature branch at the root is reset to the selected remote default.
 make_repo feature-root
 feature_repo="$CODE_DIR/feature-root"
 git -C "$feature_repo" switch -q -c feature
-initial_feature=$(git -C "$feature_repo" rev-parse HEAD)
+printf 'local feature commit\n' >> "$feature_repo/file"
+git -C "$feature_repo" add file
+git -C "$feature_repo" commit -q -m 'feature-only commit'
+local_feature=$(git -C "$feature_repo" rev-parse HEAD)
 git -C "$feature_repo" worktree add -q -b linked-worktree "$tmp/worktrees/feature-root" main
 advance_remote feature-root
+# Keep the local default branch already aligned, reproducing the previous skip condition.
+git -C "$tmp/worktrees/feature-root" fetch -q origin main
+git -C "$tmp/worktrees/feature-root" reset --hard -q origin/main
+printf 'untracked local change\n' > "$feature_repo/local.txt"
 "$script" > "$tmp/feature-output"
 [ "$(git -C "$feature_repo" symbolic-ref --short HEAD)" = feature ]
-[ "$(git -C "$feature_repo" rev-parse HEAD)" = "$initial_feature" ]
-grep -q 'checked out feature, skipping main sync' "$tmp/feature-output"
+[ "$(git -C "$feature_repo" rev-parse HEAD)" = "$(git -C "$feature_repo" rev-parse refs/remotes/origin/main)" ]
+[ "$(git -C "$feature_repo" rev-parse HEAD)" != "$local_feature" ]
+[ ! -e "$feature_repo/local.txt" ]
+git -C "$feature_repo" stash list | grep -q 'git-worktree-sync auto-stash'
+grep -q 'feature had local mods, stashed before hard-reset to origin/main' "$tmp/feature-output"
 
-# The existing active-worktree path still fast-forwards a clean default checkout.
+# The standard default-branch root remains synchronized too.
 make_repo default-root
 default_repo="$CODE_DIR/default-root"
 git -C "$default_repo" worktree add -q -b linked-worktree "$tmp/worktrees/default-root" main
 advance_remote default-root
 "$script" > "$tmp/default-output"
 [ "$(git -C "$default_repo" rev-parse HEAD)" = "$(git -C "$default_repo" rev-parse refs/remotes/origin/main)" ]
-grep -q 'default-root: main fast-forwarded' "$tmp/default-output"
+grep -q 'main hard-reset to origin/main' "$tmp/default-output"
 
-printf 'sync regression tests passed\n'
+printf 'sync hard-reset tests passed\n'

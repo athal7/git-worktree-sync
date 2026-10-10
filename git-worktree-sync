@@ -1,17 +1,13 @@
 #!/bin/sh
-# git-worktree-sync - Fast-forward default branches for repos with active worktrees
+# git-worktree-sync - Hard-reset root checkouts to remote default branches
 #
 # Iterates over repos under $CODE_DIR that have git worktrees and:
 # 1. Fetches the default branch from the primary remote (upstream if present, otherwise origin)
-# 2. Fast-forwards the local default branch via `reset --hard` so the main
-#    checkout's HEAD, index, and working tree all stay in sync.
+# 2. Hard-resets the repository root's checked-out branch to that remote branch.
 #
-# Important: this assumes you do NOT do real work in the main checkout.
-# If a repo has uncommitted edits in the main checkout when this runs and a
-# fast-forward is possible, those edits are stashed (tagged
-# "git-worktree-sync auto-stash") before the reset. Recover with `git stash list`
-# / `git stash apply` if needed; prune the auto-stash entries when stale.
-# A diverged main (local commits not in the sync source) is left alone.
+# This discards local-only commits from the checked-out branch. Dirty changes are
+# stashed with a tagged message before the reset; recover them with `git stash list`
+# / `git stash apply`.
 #
 # Designed to run on a schedule via LaunchAgent. Pairs well with
 # `git maintenance` prefetch for near-instant fetches.
@@ -22,8 +18,8 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
   cat <<'EOF'
 Usage: git-worktree-sync [--help]
 
-Fast-forwards the default branch in repos under $CODE_DIR (default: $HOME/code)
-that have active worktrees.
+Hard-resets the checked-out root to the default branch under $CODE_DIR (default: $HOME/code)
+in repos with active worktrees.
 EOF
   exit 0
 fi
@@ -56,56 +52,35 @@ for repo in "$CODE_DIR"/*/; do
     log "$name: skipped (no default branch detected)"
     continue
   }
-  # reset --hard updates the checked-out branch. Never run it while a different
-  # branch (or detached HEAD) is checked out in the repository root.
-  checked_out_branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD) || {
-    log "$name: detached HEAD, skipping"
-    continue
-  }
-  if [ "$checked_out_branch" != "$default_branch" ]; then
-    log "$name: checked out $checked_out_branch, skipping $default_branch sync"
-    continue
-  fi
+  checked_out_branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null) || checked_out_branch="detached"
   if ! git -C "$repo" fetch --quiet "$sync_remote" "$default_branch" 2>/dev/null; then
     log "$name: fetch failed"
     continue
   fi
 
-  local_ref=$(git -C "$repo" rev-parse "refs/heads/$default_branch" 2>/dev/null) || {
-    log "$name: no local $default_branch ref"
-    continue
-  }
   remote_ref=$(git -C "$repo" rev-parse "refs/remotes/$sync_remote/$default_branch" 2>/dev/null) || {
     log "$name: no remote $default_branch ref"
     continue
   }
+  head_ref=$(git -C "$repo" rev-parse HEAD 2>/dev/null) || continue
 
-  # Already up to date
-  [ "$local_ref" != "$remote_ref" ] || continue
-
-  # Only fast-forward (remote must be a descendant of local). A diverged main
-  # means there are local commits not in the sync source -- leave it alone, that's a
-  # human problem.
-  if ! git -C "$repo" merge-base --is-ancestor "$local_ref" "$remote_ref" 2>/dev/null; then
-    log "$name: $default_branch diverged, skipping"
-    continue
-  fi
+  # Already reset to the selected remote default.
+  [ "$head_ref" != "$remote_ref" ] || continue
 
   short_remote=$(echo "$remote_ref" | cut -c1-8)
 
-  # If the main checkout is dirty, stash before the reset so nothing is lost.
-  # Tag the stash message so these auto-stashes are distinguishable from
-  # human-created ones and can be pruned safely.
+  # If the root checkout is dirty, stash before the reset so edits remain recoverable.
+  # Tag auto-stashes so they can be distinguished from human-created ones.
   if [ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ]; then
     stash_msg="git-worktree-sync auto-stash $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     if git -C "$repo" stash push --include-untracked --quiet --message "$stash_msg" 2>/dev/null; then
-      log "$name: $default_branch had local mods, stashed and hard-reset to $short_remote"
+      log "$name: $checked_out_branch had local mods, stashed before hard-reset to $sync_remote/$default_branch ($short_remote)"
     else
-      log "$name: $default_branch had local mods, stash failed, skipping"
+      log "$name: $checked_out_branch had local mods, stash failed, skipping"
       continue
     fi
   else
-    log "$name: $default_branch fast-forwarded to $short_remote"
+    log "$name: $checked_out_branch hard-reset to $sync_remote/$default_branch ($short_remote)"
   fi
 
   # Hard reset so HEAD, index, and working tree stay coherent. Using
